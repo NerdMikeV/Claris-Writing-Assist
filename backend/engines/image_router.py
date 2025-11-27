@@ -458,12 +458,33 @@ def generate_veo_video(description: str, duration_seconds: int = 8) -> str:
         # Initialize the google-genai client
         client = genai.Client(api_key=api_key)
 
-        enhanced_prompt = f"""Professional B2B video for LinkedIn.
-Topic: {description}
-Style: Clean, corporate aesthetic with blue color tones (#0077B5, #00A0DC).
-Professional lighting, smooth camera movements.
-Suitable for supply chain and logistics consulting content.
-Duration: {duration_seconds} seconds."""
+        enhanced_prompt = f"""Professional B2B video for LinkedIn about supply chain and logistics consulting.
+
+CONTENT: {description}
+
+VISUAL STYLE:
+- Clean, modern corporate aesthetic
+- Color palette: Professional blues (#0077B5, #00A0DC), white, and subtle grays
+- Professional lighting with soft shadows
+- Smooth, cinematic camera movements (slow pans, subtle zooms)
+- 16:9 landscape orientation
+
+TEXT OVERLAYS (IMPORTANT):
+- Include clear, readable text overlays for key statistics or points
+- Use clean sans-serif fonts (like Helvetica or Arial style)
+- Text should appear with smooth fade-in animations
+- Position text in lower third or center of frame
+- Use white or light blue text with subtle drop shadow for readability
+- If showing numbers or percentages, animate them counting up
+
+MOTION & ANIMATION:
+- Smooth transitions between scenes
+- Subtle motion graphics for data visualization
+- Professional pace - not too fast, not too slow
+- Elements should animate in sequentially, not all at once
+
+AUDIENCE: B2B executives, VPs, directors in supply chain and logistics
+Duration: {duration_seconds} seconds"""
 
         print(f"[VEO 3.1] Enhanced prompt length: {len(enhanced_prompt)} chars")
         print(f"[VEO 3.1] Calling Veo 3.1 Fast API (this may take 1-3 minutes)...")
@@ -549,3 +570,62 @@ def regenerate_with_feedback(original_description: str, feedback: str, graphic_t
     enhanced_description = f"{original_description}\n\nAdjustments requested: {feedback}"
 
     return generate_graphic(enhanced_description, graphic_type)
+
+
+def generate_image_variations(description: str, graphic_type: str, count: int = 3) -> list:
+    """Generate multiple image variations for the user to choose from.
+
+    Args:
+        description: The graphic description
+        graphic_type: Type of graphic (concept, infographic, chart, etc.)
+        count: Number of variations to generate (default 3)
+
+    Returns:
+        List of base64-encoded images
+    """
+    import concurrent.futures
+
+    print(f"\n[VARIATIONS] ========================================")
+    print(f"[VARIATIONS] Generating {count} variations for: {description[:80]}...")
+    print(f"[VARIATIONS] Graphic type: {graphic_type}")
+
+    variations = []
+
+    # Different style variations for prompts
+    style_variations = [
+        "",  # Original
+        "Use a more minimalist design with extra whitespace.",
+        "Use a bolder, more impactful visual style with stronger contrasts.",
+        "Use a softer, more subtle approach with lighter colors.",
+    ]
+
+    def generate_single(index: int) -> str:
+        """Generate a single variation"""
+        try:
+            style_modifier = style_variations[index] if index < len(style_variations) else ""
+            modified_description = f"{description}\n\n{style_modifier}" if style_modifier else description
+
+            # Route to appropriate generator based on type
+            if graphic_type == 'infographic':
+                return generate_nano_banana_image(modified_description)
+            elif graphic_type in ['chart', 'diagram']:
+                return generate_chart(modified_description)
+            else:
+                # Use DALL-E for conceptual images
+                return generate_dalle_image(modified_description)
+        except Exception as e:
+            print(f"[VARIATIONS] Error generating variation {index}: {e}")
+            return None
+
+    # Generate variations in parallel for speed
+    with concurrent.futures.ThreadPoolExecutor(max_workers=count) as executor:
+        futures = [executor.submit(generate_single, i) for i in range(count)]
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result:
+                variations.append(result)
+
+    print(f"[VARIATIONS] Generated {len(variations)} variations successfully")
+    print(f"[VARIATIONS] ========================================\n")
+
+    return variations

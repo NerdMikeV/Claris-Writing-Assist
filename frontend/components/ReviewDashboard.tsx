@@ -60,6 +60,10 @@ export default function ReviewDashboard() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copySuccess, setCopySuccess] = useState(false)
+  const [imageVariations, setImageVariations] = useState<string[]>([])
+  const [isGeneratingVariations, setIsGeneratingVariations] = useState(false)
+  const [showVariationsModal, setShowVariationsModal] = useState(false)
+  const [isRegenerating, setIsRegenerating] = useState(false)
 
   const fetchSubmissions = async () => {
     try {
@@ -134,7 +138,7 @@ export default function ReviewDashboard() {
 
   const handleRegenerateImage = async () => {
     if (!selectedSubmission || !regenerateFeedback.trim()) return
-    setIsProcessing(true)
+    setIsRegenerating(true)
 
     try {
       const response = await fetch(`/api/regenerate-image/${selectedSubmission.id}`, {
@@ -158,7 +162,7 @@ export default function ReviewDashboard() {
     } catch (err) {
       setError('Failed to regenerate image')
     } finally {
-      setIsProcessing(false)
+      setIsRegenerating(false)
     }
   }
 
@@ -170,6 +174,58 @@ export default function ReviewDashboard() {
       setTimeout(() => setCopySuccess(false), 2000)
     } catch (err) {
       setError('Failed to copy text to clipboard')
+    }
+  }
+
+  const handleGenerateVariations = async () => {
+    if (!selectedSubmission) return
+    setIsGeneratingVariations(true)
+    setImageVariations([])
+
+    try {
+      const response = await fetch(`/api/generate-variations/${selectedSubmission.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      if (!response.ok) throw new Error('Failed to generate variations')
+
+      const data = await response.json()
+      setImageVariations(data.variations)
+      setShowVariationsModal(true)
+    } catch (err) {
+      setError('Failed to generate image variations')
+    } finally {
+      setIsGeneratingVariations(false)
+    }
+  }
+
+  const handleSelectVariation = async (imageData: string) => {
+    if (!selectedSubmission) return
+    setIsProcessing(true)
+
+    try {
+      const response = await fetch(`/api/select-variation/${selectedSubmission.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_data: imageData }),
+      })
+
+      if (!response.ok) throw new Error('Failed to select variation')
+
+      // Update the selected submission with new image
+      setSelectedSubmission(prev => prev ? { ...prev, graphic_data: imageData } : null)
+      setSubmissions(prev =>
+        prev.map(s =>
+          s.id === selectedSubmission.id ? { ...s, graphic_data: imageData } : s
+        )
+      )
+      setShowVariationsModal(false)
+      setImageVariations([])
+    } catch (err) {
+      setError('Failed to select variation')
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -537,30 +593,67 @@ export default function ReviewDashboard() {
                   </div>
                 )}
 
+                {/* Video Generating Indicator */}
+                {selectedSubmission.graphic_type === 'video' && !selectedSubmission.graphic_data && (
+                  <div className="bg-white rounded-lg shadow p-4">
+                    <h3 className="text-sm font-medium text-gray-700 mb-2">Video Generation</h3>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+                      <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <svg className="w-6 h-6 text-yellow-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      </div>
+                      <p className="text-yellow-800 font-medium">Video is being generated...</p>
+                      <p className="text-yellow-700 text-sm mt-1">This typically takes 1-3 minutes. Refresh the page to check for updates.</p>
+                      <button
+                        onClick={fetchSubmissions}
+                        className="mt-3 px-4 py-2 bg-yellow-600 text-white text-sm rounded-lg hover:bg-yellow-700 transition-colors"
+                      >
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Generated Graphic/Video */}
                 {selectedSubmission.graphic_data && (
                   <div className="bg-white rounded-lg shadow p-4">
                     <h3 className="text-sm font-medium text-gray-700 mb-2">
                       Generated {isVideoMedia(selectedSubmission.graphic_data) ? 'Video' : 'Graphic'} ({selectedSubmission.graphic_type})
                     </h3>
-                    {isVideoMedia(selectedSubmission.graphic_data) ? (
-                      <video
-                        src={getMediaSrc(selectedSubmission.graphic_data)}
-                        controls
-                        autoPlay
-                        loop
-                        muted
-                        className="w-full rounded-lg border border-gray-200"
-                      >
-                        Your browser does not support the video tag.
-                      </video>
-                    ) : (
-                      <img
-                        src={getImageSrc(selectedSubmission.graphic_data)}
-                        alt="Generated graphic"
-                        className="w-full rounded-lg border border-gray-200"
-                      />
-                    )}
+                    <div className="relative">
+                      <div className={isRegenerating ? 'opacity-30' : ''}>
+                        {isVideoMedia(selectedSubmission.graphic_data) ? (
+                          <video
+                            src={getMediaSrc(selectedSubmission.graphic_data)}
+                            controls
+                            autoPlay
+                            loop
+                            muted
+                            className="w-full rounded-lg border border-gray-200"
+                          >
+                            Your browser does not support the video tag.
+                          </video>
+                        ) : (
+                          <img
+                            src={getImageSrc(selectedSubmission.graphic_data)}
+                            alt="Generated graphic"
+                            className="w-full rounded-lg border border-gray-200"
+                          />
+                        )}
+                      </div>
+                      {isRegenerating && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/70 rounded-lg">
+                          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+                          <p className="text-gray-700 font-medium">
+                            {selectedSubmission.graphic_type === 'video'
+                              ? 'Regenerating video... (1-3 min)'
+                              : 'Regenerating image...'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                     <div className="mt-4">
                       <label className="block text-sm text-gray-600 mb-2">
                         Request changes to the {isVideoMedia(selectedSubmission.graphic_data) ? 'video' : 'image'}:
@@ -574,13 +667,51 @@ export default function ReviewDashboard() {
                           : "e.g., 'Make the colors more vibrant' or 'Add a title to the chart'"}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin-primary focus:border-transparent resize-none text-sm"
                       />
-                      <button
-                        onClick={handleRegenerateImage}
-                        disabled={isProcessing || !regenerateFeedback.trim()}
-                        className="mt-2 px-4 py-2 bg-linkedin-primary text-white text-sm rounded-lg hover:bg-linkedin-dark transition-colors disabled:opacity-50"
-                      >
-                        Regenerate {isVideoMedia(selectedSubmission.graphic_data) ? 'Video' : 'Image'}
-                      </button>
+                      <div className="flex space-x-2 mt-2">
+                        <button
+                          onClick={handleRegenerateImage}
+                          disabled={isRegenerating || !regenerateFeedback.trim()}
+                          className={`px-4 py-2 text-white text-sm rounded-lg transition-colors disabled:opacity-50 flex items-center space-x-2 ${
+                            isRegenerating ? 'bg-gray-400 cursor-not-allowed' : 'bg-linkedin-primary hover:bg-linkedin-dark'
+                          }`}
+                        >
+                          {isRegenerating ? (
+                            <>
+                              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                              </svg>
+                              <span>Regenerating...</span>
+                            </>
+                          ) : (
+                            <span>Regenerate {isVideoMedia(selectedSubmission.graphic_data) ? 'Video' : 'Image'}</span>
+                          )}
+                        </button>
+                        {!isVideoMedia(selectedSubmission.graphic_data) && (
+                          <button
+                            onClick={handleGenerateVariations}
+                            disabled={isRegenerating || isGeneratingVariations}
+                            className="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50 flex items-center space-x-1"
+                          >
+                            {isGeneratingVariations ? (
+                              <>
+                                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                                </svg>
+                                <span>Generating...</span>
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                <span>Generate Variations</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -686,6 +817,66 @@ export default function ReviewDashboard() {
           </div>
         )}
       </div>
+
+      {/* Image Variations Modal */}
+      {showVariationsModal && imageVariations.length > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">Choose a Variation</h3>
+                <button
+                  onClick={() => {
+                    setShowVariationsModal(false)
+                    setImageVariations([])
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Click on an image to select it as your main graphic
+              </p>
+            </div>
+
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {imageVariations.map((variation, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleSelectVariation(variation)}
+                    disabled={isProcessing}
+                    className="group relative aspect-video rounded-lg overflow-hidden border-2 border-transparent hover:border-linkedin-primary transition-all disabled:opacity-50"
+                  >
+                    <img
+                      src={variation.startsWith('data:') ? variation : `data:image/png;base64,${variation}`}
+                      alt={`Variation ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all flex items-center justify-center">
+                      <span className="opacity-0 group-hover:opacity-100 bg-white text-gray-800 px-3 py-1.5 rounded-lg text-sm font-medium shadow-lg">
+                        Select Option {index + 1}
+                      </span>
+                    </div>
+                    <div className="absolute top-2 left-2 bg-white text-gray-700 px-2 py-0.5 rounded text-xs font-medium">
+                      Option {index + 1}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+              <p className="text-xs text-gray-500 text-center">
+                Each variation uses a slightly different style. The original image is shown first.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

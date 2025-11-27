@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 
 type GraphicType = 'chart' | 'diagram' | 'concept' | 'infographic' | 'video' | 'none'
 type SourceType = 'personal' | 'client' | 'industry_report' | 'web_source' | 'illustrative'
+type ProgressStage = 'preparing' | 'research' | 'draft' | 'graphic' | 'saving' | 'complete' | 'error'
 
 interface ChartData {
   startValue: string
@@ -31,6 +33,13 @@ interface FormData {
   showDataInput: boolean
   dataSources: DataSource[]
   researchUrls: string[]
+}
+
+interface ProgressInfo {
+  stage: ProgressStage
+  message: string
+  elapsedSeconds: number
+  isVideo: boolean
 }
 
 const GRAPHIC_KEYWORDS: Record<GraphicType, string[]> = {
@@ -72,7 +81,174 @@ function detectGraphicType(description: string): GraphicType {
   return 'concept' // Default to concept if no specific keywords found
 }
 
+// Progress Modal Component
+function ProgressModal({ progress, onClose }: { progress: ProgressInfo; onClose: () => void }) {
+  const router = useRouter()
+  const stages: { key: ProgressStage; label: string }[] = [
+    { key: 'preparing', label: 'Preparing submission' },
+    { key: 'research', label: 'Fetching research URLs' },
+    { key: 'draft', label: 'Generating AI draft' },
+    { key: 'graphic', label: progress.isVideo ? 'Generating video (1-3 min)' : 'Creating graphic' },
+    { key: 'saving', label: 'Saving to database' },
+  ]
+
+  const currentIndex = stages.findIndex(s => s.key === progress.stage)
+  const isComplete = progress.stage === 'complete'
+  const isError = progress.stage === 'error'
+
+  const formatTime = (seconds: number) => {
+    if (seconds < 60) return `${seconds}s`
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}m ${secs}s`
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full mx-4">
+        {/* Header */}
+        <div className="text-center mb-6">
+          {isComplete ? (
+            progress.isVideo ? (
+              <>
+                <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900">Video Generation In Progress!</h3>
+                <p className="text-gray-600 mt-2">Your post text has been saved.</p>
+                <p className="text-gray-600 mt-1">The video is still being generated and will appear in the Review Dashboard in <strong>1-3 minutes</strong>.</p>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-4">
+                  <p className="text-yellow-800 text-sm">Check back shortly - the video will appear once processing completes.</p>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-semibold text-gray-900">Submission Complete!</h3>
+                <p className="text-gray-600 mt-2">Your content is ready for review.</p>
+              </>
+            )
+          ) : isError ? (
+            <>
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900">Something went wrong</h3>
+              <p className="text-gray-600 mt-2">{progress.message}</p>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 bg-linkedin-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-linkedin-primary animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900">Processing Your Submission</h3>
+              <p className="text-gray-600 mt-2">
+                Elapsed: <span className="font-mono font-medium">{formatTime(progress.elapsedSeconds)}</span>
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Progress Steps */}
+        {!isComplete && !isError && (
+          <div className="space-y-3 mb-6">
+            {stages.map((stage, index) => {
+              const isActive = stage.key === progress.stage
+              const isCompleted = index < currentIndex
+              const isPending = index > currentIndex
+
+              return (
+                <div key={stage.key} className="flex items-center space-x-3">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    isCompleted ? 'bg-green-500' :
+                    isActive ? 'bg-linkedin-primary' :
+                    'bg-gray-200'
+                  }`}>
+                    {isCompleted ? (
+                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    ) : isActive ? (
+                      <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                    ) : (
+                      <div className="w-2 h-2 bg-gray-400 rounded-full" />
+                    )}
+                  </div>
+                  <span className={`text-sm ${
+                    isActive ? 'text-linkedin-primary font-medium' :
+                    isCompleted ? 'text-green-600' :
+                    'text-gray-400'
+                  }`}>
+                    {stage.label}
+                    {isActive && progress.isVideo && stage.key === 'graphic' && (
+                      <span className="block text-xs text-gray-500 mt-0.5">
+                        Video generation takes longer - please wait
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Video Warning */}
+        {!isComplete && !isError && progress.isVideo && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-6">
+            <p className="text-sm text-yellow-800">
+              <span className="font-medium">Video generation in progress.</span> This typically takes 1-3 minutes. Please don&apos;t close this window.
+            </p>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex space-x-3">
+          {isComplete ? (
+            <>
+              <button
+                onClick={() => router.push('/review')}
+                className="flex-1 px-4 py-3 bg-linkedin-primary text-white rounded-lg font-medium hover:bg-linkedin-dark transition-colors"
+              >
+                {progress.isVideo ? 'Check Progress in Dashboard' : 'Go to Review Dashboard'}
+              </button>
+              <button
+                onClick={onClose}
+                className="px-4 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors"
+              >
+                Submit Another
+              </button>
+            </>
+          ) : isError ? (
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-3 bg-linkedin-primary text-white rounded-lg font-medium hover:bg-linkedin-dark transition-colors"
+            >
+              Try Again
+            </button>
+          ) : (
+            <p className="text-xs text-gray-500 text-center w-full">
+              Please keep this window open until processing completes
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ContentSubmissionForm() {
+  const router = useRouter()
   const [formData, setFormData] = useState<FormData>({
     author: '',
     rawInput: '',
@@ -98,7 +274,14 @@ export default function ContentSubmissionForm() {
   const [validationError, setValidationError] = useState<string | null>(null)
   const [showResearchSection, setShowResearchSection] = useState(false)
   const [showSourcesSection, setShowSourcesSection] = useState(false)
-  const [progressStage, setProgressStage] = useState<string>('')
+  const [showProgressModal, setShowProgressModal] = useState(false)
+  const [progressInfo, setProgressInfo] = useState<ProgressInfo>({
+    stage: 'preparing',
+    message: '',
+    elapsedSeconds: 0,
+    isVideo: false,
+  })
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
 
   // Check if form has valid content (either idea or graphic)
   const hasIdeaContent = formData.rawInput.trim().length > 0
@@ -134,142 +317,19 @@ export default function ContentSubmissionForm() {
     }
   }, [formData.chartData, formData.dataSources.length])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setValidationError(null)
-    setSubmitStatus(null)
-
-    // Validate: must have either idea or graphic description
-    if (!hasValidContent) {
-      setValidationError('Please enter an idea, a graphic description, or both')
-      return
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+      }
     }
+  }, [])
 
-    setIsSubmitting(true)
-    setProgressStage('Preparing submission...')
-
-    try {
-      const submitFormData = new FormData()
-      submitFormData.append('author', formData.author)
-
-      // Only append idea if provided
-      if (formData.rawInput.trim()) {
-        submitFormData.append('idea', formData.rawInput)
-      }
-
-      if (formData.addGraphic && formData.graphicDescription.trim()) {
-        submitFormData.append('graphic_description', formData.graphicDescription)
-        submitFormData.append('graphic_type', formData.graphicType)
-
-        if (formData.uploadedFile) {
-          submitFormData.append('image_file', formData.uploadedFile)
-        }
-
-        // Include chart data if provided (for charts or diagrams)
-        if ((formData.graphicType === 'chart' || formData.graphicType === 'diagram') && formData.showDataInput) {
-          // Only include if there's actual data entered
-          const hasData = formData.chartData.startValue || formData.chartData.endValue || formData.chartData.dataPoints
-          if (hasData) {
-            const chartDataJson = JSON.stringify(formData.chartData)
-            submitFormData.append('chart_data', chartDataJson)
-          }
-        }
-      }
-
-      // Include data sources if any
-      if (formData.dataSources.length > 0) {
-        const validSources = formData.dataSources.filter(s => s.dataPoint || s.value)
-        if (validSources.length > 0) {
-          submitFormData.append('data_sources', JSON.stringify(validSources))
-        }
-      }
-
-      // Include research URLs if any
-      const validUrls = formData.researchUrls.filter(url => url.trim())
-      const hasResearchUrls = validUrls.length > 0
-      if (hasResearchUrls) {
-        submitFormData.append('research_urls', JSON.stringify(validUrls))
-      }
-
-      // Determine what stages we'll go through for progress display
-      const hasIdea = formData.rawInput.trim().length > 0
-      const hasGraphic = formData.addGraphic && formData.graphicDescription.trim().length > 0
-
-      // Update progress based on what's being processed
-      if (hasResearchUrls) {
-        setProgressStage('Fetching research URLs...')
-      }
-
-      // Start progress simulation for long operations
-      let elapsedSeconds = 0
-      const progressInterval = setInterval(() => {
-        elapsedSeconds += 10
-        setProgressStage(prev => {
-          // Add elapsed time to the message
-          const timeNote = elapsedSeconds >= 30 ? ` (${elapsedSeconds}s)` : ''
-
-          if (prev.includes('Fetching research')) {
-            return hasIdea ? `Generating AI draft...${timeNote}` : (hasGraphic ? `Creating graphic...${timeNote}` : `Fetching research URLs...${timeNote}`)
-          }
-          if (prev.includes('Generating AI draft')) {
-            return hasGraphic ? `Creating graphic...${timeNote}` : `Finalizing...${timeNote}`
-          }
-          if (prev.includes('Creating graphic')) {
-            return `Finalizing...${timeNote}`
-          }
-          if (prev.includes('Finalizing')) {
-            return `Finalizing...${timeNote}`
-          }
-          return `Processing...${timeNote}`
-        })
-      }, 10000) // Update every 10 seconds
-
-      // Use AbortController with a very long timeout (3 minutes)
-      // This is long because web research + AI draft + image generation can take a while
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 180000) // 3 minute timeout
-
-      let response: Response
-      try {
-        response = await fetch('/api/submit-idea', {
-          method: 'POST',
-          body: submitFormData,
-          signal: controller.signal,
-        })
-      } catch (fetchError) {
-        clearTimeout(timeoutId)
-        clearInterval(progressInterval)
-
-        // Check if it was an abort (timeout)
-        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-          // Timeout - but the request might still be processing on the server
-          setProgressStage('')
-          setSubmitStatus({
-            type: 'success', // Treat as potential success since backend might still process
-            message: 'The request is taking longer than expected. Your submission may still be processing - please check the Review Dashboard in a minute to see if it appears.',
-          })
-          // Don't reset the form - let user decide
-          setIsSubmitting(false)
-          return
-        }
-        throw fetchError
-      }
-
-      clearTimeout(timeoutId)
-      clearInterval(progressInterval)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || 'Failed to submit idea')
-      }
-
-      setProgressStage('')
-      setSubmitStatus({
-        type: 'success',
-        message: 'Your idea has been submitted successfully! It will be processed and queued for review.',
-      })
-
-      // Reset form
+  const handleCloseProgressModal = () => {
+    setShowProgressModal(false)
+    if (progressInfo.stage === 'complete') {
+      // Reset form on successful completion
       setFormData({
         author: '',
         rawInput: '',
@@ -290,29 +350,183 @@ export default function ContentSubmissionForm() {
       })
       setShowResearchSection(false)
       setShowSourcesSection(false)
-    } catch (error) {
-      setProgressStage('')
+    }
+    setProgressInfo({
+      stage: 'preparing',
+      message: '',
+      elapsedSeconds: 0,
+      isVideo: false,
+    })
+  }
 
-      // Check if error message indicates a network/timeout issue vs actual failure
-      const errorMessage = error instanceof Error ? error.message : 'Failed to submit idea'
-      const isNetworkError = errorMessage.toLowerCase().includes('network') ||
-                            errorMessage.toLowerCase().includes('fetch') ||
-                            errorMessage.toLowerCase().includes('timeout')
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setValidationError(null)
+    setSubmitStatus(null)
 
-      if (isNetworkError) {
-        setSubmitStatus({
-          type: 'error',
-          message: 'Network issue detected. Your submission may still be processing on the server. Please check the Review Dashboard in a minute.',
-        })
-      } else {
-        setSubmitStatus({
-          type: 'error',
-          message: errorMessage,
-        })
+    // Validate: must have either idea or graphic description
+    if (!hasValidContent) {
+      setValidationError('Please enter an idea, a graphic description, or both')
+      return
+    }
+
+    // Determine what we're processing
+    const hasResearchUrls = formData.researchUrls.some(url => url.trim())
+    const hasIdea = formData.rawInput.trim().length > 0
+    const hasGraphic = formData.addGraphic && formData.graphicDescription.trim().length > 0
+    const isVideo = formData.graphicType === 'video'
+
+    // Show progress modal
+    setShowProgressModal(true)
+    setProgressInfo({
+      stage: 'preparing',
+      message: '',
+      elapsedSeconds: 0,
+      isVideo,
+    })
+    setIsSubmitting(true)
+
+    // Start elapsed time counter
+    let elapsed = 0
+    timerRef.current = setInterval(() => {
+      elapsed += 1
+      setProgressInfo(prev => ({ ...prev, elapsedSeconds: elapsed }))
+    }, 1000)
+
+    try {
+      const submitFormData = new FormData()
+      submitFormData.append('author', formData.author)
+
+      // Only append idea if provided
+      if (formData.rawInput.trim()) {
+        submitFormData.append('idea', formData.rawInput)
       }
+
+      if (formData.addGraphic && formData.graphicDescription.trim()) {
+        submitFormData.append('graphic_description', formData.graphicDescription)
+        submitFormData.append('graphic_type', formData.graphicType)
+
+        if (formData.uploadedFile) {
+          submitFormData.append('image_file', formData.uploadedFile)
+        }
+
+        // Include chart data if provided (for charts or diagrams)
+        if ((formData.graphicType === 'chart' || formData.graphicType === 'diagram') && formData.showDataInput) {
+          const hasData = formData.chartData.startValue || formData.chartData.endValue || formData.chartData.dataPoints
+          if (hasData) {
+            const chartDataJson = JSON.stringify(formData.chartData)
+            submitFormData.append('chart_data', chartDataJson)
+          }
+        }
+      }
+
+      // Include data sources if any
+      if (formData.dataSources.length > 0) {
+        const validSources = formData.dataSources.filter(s => s.dataPoint || s.value)
+        if (validSources.length > 0) {
+          submitFormData.append('data_sources', JSON.stringify(validSources))
+        }
+      }
+
+      // Include research URLs if any
+      const validUrls = formData.researchUrls.filter(url => url.trim())
+      if (validUrls.length > 0) {
+        submitFormData.append('research_urls', JSON.stringify(validUrls))
+      }
+
+      // Update progress stages based on what we're doing
+      // Stage 1: Research (if URLs provided)
+      if (hasResearchUrls) {
+        setProgressInfo(prev => ({ ...prev, stage: 'research' }))
+        await new Promise(resolve => setTimeout(resolve, 500)) // Brief pause to show stage
+      }
+
+      // Stage 2: Draft (if idea provided)
+      if (hasIdea) {
+        setProgressInfo(prev => ({ ...prev, stage: 'draft' }))
+      }
+
+      // Stage 3: Graphic (if graphic requested)
+      if (hasGraphic) {
+        setProgressInfo(prev => ({ ...prev, stage: 'graphic' }))
+      }
+
+      // Make the actual API call - no timeout for video (can take 5+ minutes)
+      const timeoutMs = isVideo ? 600000 : 300000 // 10 min for video, 5 min otherwise
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+      // For long-running requests (especially video), call backend directly to bypass Next.js proxy timeout
+      // The proxy has a ~30s default timeout that can't be reliably extended
+      const apiUrl = isVideo || hasResearchUrls
+        ? (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
+        : ''  // Use proxy for quick requests
+
+      let response: Response
+      try {
+        response = await fetch(`${apiUrl}/api/submit-idea`, {
+          method: 'POST',
+          body: submitFormData,
+          signal: controller.signal,
+        })
+      } catch (fetchError) {
+        clearTimeout(timeoutId)
+        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+          throw new Error('Request timed out. Your submission may still be processing - please check the Review Dashboard.')
+        }
+        throw fetchError
+      }
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(errorText || 'Failed to submit idea')
+      }
+
+      // Parse and validate the response
+      let data
+      try {
+        data = await response.json()
+        console.log('Backend response:', data)
+        console.log('Response success:', data?.success)
+      } catch (parseError) {
+        console.error('Failed to parse response JSON:', parseError)
+        throw new Error('Invalid response from server')
+      }
+
+      // Verify we got a valid success response
+      if (!data || !data.success) {
+        console.error('Response missing success field:', data)
+        throw new Error(data?.message || 'Submission failed - invalid response')
+      }
+
+      // Stage 4: Saving
+      setProgressInfo(prev => ({ ...prev, stage: 'saving' }))
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Complete! Only mark complete after we've verified the response
+      console.log('Marking submission as complete')
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+      setProgressInfo(prev => ({ ...prev, stage: 'complete' }))
+
+    } catch (error) {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+        timerRef.current = null
+      }
+
+      const errorMessage = error instanceof Error ? error.message : 'Failed to submit idea'
+      setProgressInfo(prev => ({
+        ...prev,
+        stage: 'error',
+        message: errorMessage,
+      }))
     } finally {
       setIsSubmitting(false)
-      setProgressStage('')
     }
   }
 
@@ -793,20 +1007,25 @@ Haiku 3.5: $0.25 input, $1.25 output"
         }`}
       >
         {isSubmitting ? (
-          <span className="flex flex-col items-center justify-center">
-            <span className="flex items-center">
-              <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              {progressStage || 'Processing...'}
-            </span>
-            <span className="text-xs mt-1 opacity-75">This may take 30-60 seconds for web research</span>
+          <span className="flex items-center justify-center">
+            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Processing...
           </span>
         ) : (
           'Submit Idea'
         )}
       </button>
+
+      {/* Progress Modal */}
+      {showProgressModal && (
+        <ProgressModal
+          progress={progressInfo}
+          onClose={handleCloseProgressModal}
+        />
+      )}
     </form>
   )
 }

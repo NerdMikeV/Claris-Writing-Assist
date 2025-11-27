@@ -16,6 +16,8 @@ from models import (
     RejectRequest,
     RegenerateImageRequest,
     RegenerateImageResponse,
+    GenerateVariationsResponse,
+    SelectVariationRequest,
     SuccessResponse,
 )
 from database import (
@@ -25,7 +27,7 @@ from database import (
     update_submission,
 )
 from engines.writing_engine import draft_linkedin_post
-from engines.image_router import generate_graphic, regenerate_with_feedback
+from engines.image_router import generate_graphic, regenerate_with_feedback, generate_image_variations
 from engines.web_research import process_research_urls
 
 # Configure logging - use INFO level to reduce noise from matplotlib etc.
@@ -329,6 +331,86 @@ async def regenerate_image_endpoint(submission_id: str, request: RegenerateImage
         raise
     except Exception as e:
         logger.error(f"Error regenerating image: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/generate-variations/{submission_id}", response_model=GenerateVariationsResponse)
+async def generate_variations_endpoint(submission_id: str):
+    """
+    Generate multiple image variations for a submission.
+
+    Returns an array of 3 base64-encoded images for the user to choose from.
+    """
+    try:
+        logger.info(f"Generate variations request for submission {submission_id}")
+
+        submission = get_submission_by_id(submission_id)
+        if not submission:
+            raise HTTPException(status_code=404, detail="Submission not found")
+
+        if not submission.get("graphic_type") or not submission.get("graphic_description"):
+            raise HTTPException(
+                status_code=400,
+                detail="This submission does not have graphic generation enabled",
+            )
+
+        graphic_type = submission["graphic_type"]
+        if graphic_type == "video":
+            raise HTTPException(
+                status_code=400,
+                detail="Variations are not available for video content",
+            )
+
+        logger.info(f"Generating 3 variations for {graphic_type}: {submission['graphic_description'][:80]}...")
+
+        variations = generate_image_variations(
+            description=submission["graphic_description"],
+            graphic_type=graphic_type,
+            count=3,
+        )
+
+        if not variations:
+            raise HTTPException(status_code=500, detail="Failed to generate variations")
+
+        logger.info(f"Generated {len(variations)} variations successfully")
+
+        return GenerateVariationsResponse(variations=variations)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating variations: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/select-variation/{submission_id}", response_model=SuccessResponse)
+async def select_variation_endpoint(submission_id: str, request: SelectVariationRequest):
+    """
+    Select a variation as the main graphic for a submission.
+    """
+    try:
+        logger.info(f"Select variation request for submission {submission_id}")
+
+        submission = get_submission_by_id(submission_id)
+        if not submission:
+            raise HTTPException(status_code=404, detail="Submission not found")
+
+        # Update the submission with the selected image
+        update_submission(submission_id, {"graphic_data": request.image_data})
+
+        logger.info(f"Variation selected and saved for submission {submission_id}")
+
+        return SuccessResponse(
+            success=True,
+            message="Selected variation has been set as the main graphic.",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error selecting variation: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 

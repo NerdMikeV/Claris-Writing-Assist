@@ -92,6 +92,14 @@ class RegenerateImageResponse(BaseModel):
     new_image_data: str
 
 
+class GenerateVariationsResponse(BaseModel):
+    variations: list[str]  # List of base64-encoded images
+
+
+class SelectVariationRequest(BaseModel):
+    image_data: str  # The selected base64-encoded image
+
+
 class SuccessResponse(BaseModel):
     success: bool = True
     message: str

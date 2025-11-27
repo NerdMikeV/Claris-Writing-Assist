@@ -14,6 +14,10 @@ const nextConfig = {
       },
     ]
   },
+  // Extend proxy timeout for long-running API calls (video generation)
+  experimental: {
+    proxyTimeout: 600000, // 10 minutes
+  },
 }
 
 module.exports = nextConfig

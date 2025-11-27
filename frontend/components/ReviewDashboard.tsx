@@ -173,21 +173,26 @@ export default function ReviewDashboard() {
     }
   }
 
-  const handleDownloadImage = () => {
+  const handleDownloadMedia = () => {
     if (!selectedSubmission?.graphic_data) return
 
-    const imageSrc = getImageSrc(selectedSubmission.graphic_data)
+    const mediaSrc = getMediaSrc(selectedSubmission.graphic_data)
     const link = document.createElement('a')
-    link.href = imageSrc
+    link.href = mediaSrc
 
-    // Generate filename with date
+    // Generate filename with date and appropriate extension
     const date = new Date().toISOString().split('T')[0]
-    link.download = `claris-post-${date}.png`
+    const isVideo = isVideoMedia(selectedSubmission.graphic_data)
+    const extension = isVideo ? 'mp4' : 'png'
+    link.download = `claris-post-${date}.${extension}`
 
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
   }
+
+  // Alias for backwards compatibility
+  const handleDownloadImage = handleDownloadMedia
 
   const getCharCountColor = (count: number) => {
     if (count > MAX_LINKEDIN_CHARS) return 'text-red-600'
@@ -216,16 +221,25 @@ export default function ReviewDashboard() {
     })
   }
 
-  // Helper to get proper image src - handles both raw base64 and data URI formats
-  const getImageSrc = (graphicData: string | null): string => {
+  // Helper to get proper media src - handles both raw base64 and data URI formats
+  const getMediaSrc = (graphicData: string | null): string => {
     if (!graphicData) return ''
     // If it already has the data URI prefix, use as-is
     if (graphicData.startsWith('data:')) {
       return graphicData
     }
-    // Otherwise, add the prefix
+    // Otherwise, add the prefix (default to image/png)
     return `data:image/png;base64,${graphicData}`
   }
+
+  // Helper to check if media is video
+  const isVideoMedia = (graphicData: string | null): boolean => {
+    if (!graphicData) return false
+    return graphicData.startsWith('data:video/')
+  }
+
+  // Alias for backwards compatibility
+  const getImageSrc = getMediaSrc
 
   // Check if any data sources need attention (illustrative or missing source)
   const hasSourceWarnings = (sources: DataSource[] | null): boolean => {
@@ -364,13 +378,13 @@ export default function ReviewDashboard() {
                 )}
                 {selectedSubmission?.graphic_data && (
                   <button
-                    onClick={handleDownloadImage}
+                    onClick={handleDownloadMedia}
                     className="px-4 py-2 bg-linkedin-primary text-white rounded-lg hover:bg-linkedin-dark transition-colors flex items-center space-x-2"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
-                    <span>Download Image</span>
+                    <span>Download {isVideoMedia(selectedSubmission.graphic_data) ? 'Video' : 'Image'}</span>
                   </button>
                 )}
               </div>
@@ -523,26 +537,41 @@ export default function ReviewDashboard() {
                   </div>
                 )}
 
-                {/* Generated Graphic */}
+                {/* Generated Graphic/Video */}
                 {selectedSubmission.graphic_data && (
                   <div className="bg-white rounded-lg shadow p-4">
                     <h3 className="text-sm font-medium text-gray-700 mb-2">
-                      Generated Graphic ({selectedSubmission.graphic_type})
+                      Generated {isVideoMedia(selectedSubmission.graphic_data) ? 'Video' : 'Graphic'} ({selectedSubmission.graphic_type})
                     </h3>
-                    <img
-                      src={getImageSrc(selectedSubmission.graphic_data)}
-                      alt="Generated graphic"
-                      className="w-full rounded-lg border border-gray-200"
-                    />
+                    {isVideoMedia(selectedSubmission.graphic_data) ? (
+                      <video
+                        src={getMediaSrc(selectedSubmission.graphic_data)}
+                        controls
+                        autoPlay
+                        loop
+                        muted
+                        className="w-full rounded-lg border border-gray-200"
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                    ) : (
+                      <img
+                        src={getImageSrc(selectedSubmission.graphic_data)}
+                        alt="Generated graphic"
+                        className="w-full rounded-lg border border-gray-200"
+                      />
+                    )}
                     <div className="mt-4">
                       <label className="block text-sm text-gray-600 mb-2">
-                        Request changes to the image:
+                        Request changes to the {isVideoMedia(selectedSubmission.graphic_data) ? 'video' : 'image'}:
                       </label>
                       <textarea
                         value={regenerateFeedback}
                         onChange={(e) => setRegenerateFeedback(e.target.value)}
                         rows={2}
-                        placeholder="e.g., 'Make the colors more vibrant' or 'Add a title to the chart'"
+                        placeholder={isVideoMedia(selectedSubmission.graphic_data)
+                          ? "e.g., 'Make it slower' or 'Add more transitions'"
+                          : "e.g., 'Make the colors more vibrant' or 'Add a title to the chart'"}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-linkedin-primary focus:border-transparent resize-none text-sm"
                       />
                       <button
@@ -550,7 +579,7 @@ export default function ReviewDashboard() {
                         disabled={isProcessing || !regenerateFeedback.trim()}
                         className="mt-2 px-4 py-2 bg-linkedin-primary text-white text-sm rounded-lg hover:bg-linkedin-dark transition-colors disabled:opacity-50"
                       >
-                        Regenerate Image
+                        Regenerate {isVideoMedia(selectedSubmission.graphic_data) ? 'Video' : 'Image'}
                       </button>
                     </div>
                   </div>
@@ -605,14 +634,26 @@ export default function ReviewDashboard() {
                       )}
                     </div>
 
-                    {/* Post Image */}
+                    {/* Post Image/Video */}
                     {selectedSubmission.graphic_data && (
                       <div className="border-t border-gray-100">
-                        <img
-                          src={getImageSrc(selectedSubmission.graphic_data)}
-                          alt="Post graphic"
-                          className="w-full"
-                        />
+                        {isVideoMedia(selectedSubmission.graphic_data) ? (
+                          <video
+                            src={getMediaSrc(selectedSubmission.graphic_data)}
+                            controls
+                            muted
+                            loop
+                            className="w-full"
+                          >
+                            Your browser does not support the video tag.
+                          </video>
+                        ) : (
+                          <img
+                            src={getImageSrc(selectedSubmission.graphic_data)}
+                            alt="Post graphic"
+                            className="w-full"
+                          />
+                        )}
                       </div>
                     )}
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 
-type GraphicType = 'chart' | 'diagram' | 'concept' | 'none'
+type GraphicType = 'chart' | 'diagram' | 'concept' | 'infographic' | 'video' | 'none'
 type SourceType = 'personal' | 'client' | 'industry_report' | 'web_source' | 'illustrative'
 
 interface ChartData {
@@ -34,6 +34,8 @@ interface FormData {
 }
 
 const GRAPHIC_KEYWORDS: Record<GraphicType, string[]> = {
+  video: ['video', 'animation', 'animated', 'motion graphics', 'moving', 'clip', 'footage', 'movie'],
+  infographic: ['infographic', 'stats', 'statistics visualization', 'data visualization with text', 'text-heavy', 'diagram with text', 'stat card', 'data card', 'metrics dashboard', 'key metrics'],
   chart: ['chart', 'graph', 'data', 'statistics', 'trend', 'numbers', 'metrics', 'percentage', 'growth', 'decline', 'comparison'],
   diagram: ['diagram', 'flow', 'process', 'workflow', 'steps', 'stages', 'architecture', 'structure', 'hierarchy'],
   concept: ['concept', 'illustration', 'visual', 'abstract', 'idea', 'metaphor', 'scene', 'image'],
@@ -41,6 +43,8 @@ const GRAPHIC_KEYWORDS: Record<GraphicType, string[]> = {
 }
 
 const ENGINE_RECOMMENDATIONS: Record<GraphicType, string> = {
+  video: 'Veo 3.1 - Best for animations and motion graphics',
+  infographic: 'Nano Banana Pro - Best for text-heavy infographics and data summaries',
   chart: 'Python/Matplotlib - Best for data visualization and charts',
   diagram: 'Python/Matplotlib - Best for process diagrams and flowcharts',
   concept: 'DALL-E 3 - Best for conceptual illustrations and creative visuals',
@@ -718,7 +722,7 @@ Haiku 3.5: $0.25 input, $1.25 output"
                   Manually select graphic type
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {(['chart', 'diagram', 'concept'] as GraphicType[]).map((type) => (
+                  {(['chart', 'diagram', 'concept', 'infographic', 'video'] as GraphicType[]).map((type) => (
                     <button
                       key={type}
                       type="button"

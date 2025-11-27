@@ -2,7 +2,9 @@
 
 from openai import OpenAI
 from anthropic import Anthropic
+import google.generativeai as genai
 import os
+import traceback
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -13,6 +15,10 @@ import base64
 load_dotenv()
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 anthropic = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+# Configure Google AI if API key is available
+if os.getenv("GOOGLE_API_KEY"):
+    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 CLARIS_COLORS = {
     'primary': '#0077B5',
@@ -27,14 +33,36 @@ def classify_graphic_type(description: str) -> str:
     Auto-detect what type of graphic is needed.
 
     Priority:
-    1. Check for explicit chart keywords -> 'chart'
-    2. Check for explicit diagram keywords -> 'diagram'
-    3. Default to 'conceptual' (DALL-E) for everything else
+    1. Check for video keywords -> 'video' (Veo 3.1)
+    2. Check for infographic keywords -> 'infographic' (Nano Banana Pro)
+    3. Check for explicit chart keywords -> 'chart' (Matplotlib)
+    4. Check for explicit diagram keywords -> 'diagram' (Matplotlib)
+    5. Default to 'conceptual' (DALL-E) for everything else
 
     IMPORTANT: Descriptions asking for "image of", "picture of", "rendering of",
     "view of", "scene of", etc. should go to DALL-E, NOT charts.
     """
     desc_lower = description.lower()
+
+    # VIDEO keywords - route to Veo 3.1
+    video_keywords = [
+        'video', 'animation', 'animated', 'motion graphics',
+        'moving', 'clip', 'footage', 'movie'
+    ]
+
+    if any(keyword in desc_lower for keyword in video_keywords):
+        return 'video'
+
+    # INFOGRAPHIC keywords - route to Nano Banana Pro (better for text-heavy images)
+    infographic_keywords = [
+        'infographic', 'stats', 'statistics visualization',
+        'data visualization with text', 'text-heavy', 'diagram with text',
+        'comparison chart with labels', 'data summary', 'key metrics',
+        'stat card', 'data card', 'metrics dashboard'
+    ]
+
+    if any(keyword in desc_lower for keyword in infographic_keywords):
+        return 'infographic'
 
     # EXPLICIT chart keywords - only route to chart if these are present
     # Must be specific chart types, not generic data words
@@ -68,13 +96,13 @@ def classify_graphic_type(description: str) -> str:
     return 'conceptual'
 
 def generate_graphic(description: str, graphic_type: str = None, chart_data: str = None, research_data: list = None) -> str:
-    """Route to appropriate image generation engine. Returns base64 encoded image.
+    """Route to appropriate image generation engine. Returns base64 encoded image or video.
 
     Args:
         description: Text description of the graphic
-        graphic_type: Type of graphic (chart, diagram, conceptual)
+        graphic_type: Type of graphic (chart, diagram, conceptual, infographic, video)
         chart_data: Optional JSON string with chart data points
-        research_data: Optional list of research results with extracted facts (only used for charts/diagrams)
+        research_data: Optional list of research results with extracted facts (only used for charts/diagrams/infographics)
     """
     print(f"\n[IMAGE ROUTER] ========================================")
     print(f"[IMAGE ROUTER] Description: {description}")
@@ -93,9 +121,15 @@ def generate_graphic(description: str, graphic_type: str = None, chart_data: str
         print(f"[IMAGE ROUTER] Using requested type: {graphic_type}")
 
     # Determine routing
-    # For charts/diagrams: pass research data so they can use real numbers
-    # For conceptual: do NOT pass research data - keep DALL-E creative
-    if graphic_type == 'chart':
+    if graphic_type == 'video':
+        print(f"[IMAGE ROUTER] Routing to: VEO 3.1 (video)")
+        print(f"[IMAGE ROUTER] ========================================\n")
+        return generate_veo_video(description)
+    elif graphic_type == 'infographic':
+        print(f"[IMAGE ROUTER] Routing to: NANO BANANA PRO (infographic)")
+        print(f"[IMAGE ROUTER] ========================================\n")
+        return generate_nano_banana_image(description, research_data)
+    elif graphic_type == 'chart':
         print(f"[IMAGE ROUTER] Routing to: MATPLOTLIB (chart)")
         print(f"[IMAGE ROUTER] ========================================\n")
         return generate_chart(description, chart_data, research_data)
@@ -311,9 +345,166 @@ Style requirements:
         print(f"[DALL-E] ========================================\n")
         return None
 
+def generate_nano_banana_image(description: str, research_data: list = None) -> str:
+    """Generate image using Google's Nano Banana Pro - best for infographics and text-heavy images.
+
+    Nano Banana Pro is optimized for generating images with text, data visualizations,
+    and infographic-style content where DALL-E often struggles with text rendering.
+    """
+    print(f"\n[NANO BANANA PRO] ========================================")
+    print(f"[NANO BANANA PRO] Generating infographic for: {description[:100]}...")
+    print(f"[NANO BANANA PRO] Research data provided: {bool(research_data)}")
+
+    try:
+        # Check if Google AI is configured
+        if not os.getenv("GOOGLE_API_KEY"):
+            print(f"[NANO BANANA PRO] ERROR: GOOGLE_API_KEY not set, falling back to DALL-E")
+            print(f"[NANO BANANA PRO] ========================================\n")
+            return generate_dalle_image(description)
+
+        # Build enhanced prompt for infographic
+        research_context = ""
+        if research_data:
+            facts = _format_research_for_chart(research_data)
+            if facts:
+                research_context = f"\n\nUse these real statistics and facts:\n{facts}"
+
+        enhanced_prompt = f"""Create a professional infographic for LinkedIn:
+
+{description}{research_context}
+
+Style requirements:
+- Clean, modern corporate design
+- Color palette: Blues (#0077B5, #00A0DC, #005582) with white and gray accents
+- Clear, readable text and labels
+- Professional B2B aesthetic suitable for supply chain executives
+- Landscape orientation (16:9 ratio)
+- Data should be prominently displayed with clear visual hierarchy
+- Minimal but effective use of icons and visual elements"""
+
+        print(f"[NANO BANANA PRO] Enhanced prompt length: {len(enhanced_prompt)} chars")
+        print(f"[NANO BANANA PRO] Calling Google Gemini 3 Pro Image API...")
+
+        # Use Gemini 3 Pro Image model for infographic generation
+        model = genai.GenerativeModel('gemini-3-pro-image-preview')
+
+        response = model.generate_content(
+            enhanced_prompt,
+            generation_config={
+                "response_modalities": ["image"],
+                "image_size": "1792x1024",  # LinkedIn landscape
+            }
+        )
+
+        # Extract image from response
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'inline_data') and part.inline_data:
+                    image_data = part.inline_data.data
+                    mime_type = part.inline_data.mime_type or "image/png"
+
+                    # Convert to base64 if not already
+                    if isinstance(image_data, bytes):
+                        image_base64 = base64.b64encode(image_data).decode()
+                    else:
+                        image_base64 = image_data
+
+                    print(f"[NANO BANANA PRO] SUCCESS - Image generated, base64 length: {len(image_base64)} chars")
+                    print(f"[NANO BANANA PRO] ========================================\n")
+
+                    return f"data:{mime_type};base64,{image_base64}"
+
+        print(f"[NANO BANANA PRO] ERROR: No image in response, falling back to DALL-E")
+        print(f"[NANO BANANA PRO] ========================================\n")
+        return generate_dalle_image(description)
+
+    except Exception as e:
+        print(f"[NANO BANANA PRO] ERROR: {str(e)}")
+        print(f"[NANO BANANA PRO] Full traceback:\n{traceback.format_exc()}")
+        print(f"[NANO BANANA PRO] Falling back to DALL-E...")
+        print(f"[NANO BANANA PRO] ========================================\n")
+        return generate_dalle_image(description)
+
+
+def generate_veo_video(description: str, duration_seconds: int = 8) -> str:
+    """Generate video using Google's Veo 3.1 Fast.
+
+    Veo 3.1 is Google's video generation model, ideal for creating
+    motion graphics, animations, and video content for social media.
+
+    Returns a base64-encoded video with metadata prefix for frontend handling.
+    """
+    print(f"\n[VEO 3.1] ========================================")
+    print(f"[VEO 3.1] Generating video for: {description[:100]}...")
+    print(f"[VEO 3.1] Duration: {duration_seconds} seconds")
+
+    try:
+        # Check if Google AI is configured
+        if not os.getenv("GOOGLE_API_KEY"):
+            print(f"[VEO 3.1] ERROR: GOOGLE_API_KEY not set")
+            print(f"[VEO 3.1] ========================================\n")
+            return None
+
+        enhanced_prompt = f"""Create a professional video for LinkedIn:
+
+{description}
+
+Style requirements:
+- Clean, modern corporate motion graphics
+- Color palette: Blues (#0077B5, #00A0DC, #005582) with white accents
+- Smooth, professional transitions
+- B2B aesthetic suitable for supply chain executives
+- Landscape orientation (16:9 ratio)
+- Suitable for professional social media
+- Duration: approximately {duration_seconds} seconds"""
+
+        print(f"[VEO 3.1] Enhanced prompt length: {len(enhanced_prompt)} chars")
+        print(f"[VEO 3.1] Calling Google Veo 3.1 Fast API...")
+
+        # Use Veo 3.1 Fast for video generation
+        model = genai.GenerativeModel('veo-3.1-fast-generate-preview')
+
+        response = model.generate_content(
+            enhanced_prompt,
+            generation_config={
+                "response_modalities": ["video"],
+                "video_duration_seconds": duration_seconds,
+            }
+        )
+
+        # Extract video from response
+        if response.candidates and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'inline_data') and part.inline_data:
+                    video_data = part.inline_data.data
+                    mime_type = part.inline_data.mime_type or "video/mp4"
+
+                    # Convert to base64 if not already
+                    if isinstance(video_data, bytes):
+                        video_base64 = base64.b64encode(video_data).decode()
+                    else:
+                        video_base64 = video_data
+
+                    print(f"[VEO 3.1] SUCCESS - Video generated, base64 length: {len(video_base64)} chars")
+                    print(f"[VEO 3.1] ========================================\n")
+
+                    # Return with video mime type prefix for frontend detection
+                    return f"data:{mime_type};base64,{video_base64}"
+
+        print(f"[VEO 3.1] ERROR: No video in response")
+        print(f"[VEO 3.1] ========================================\n")
+        return None
+
+    except Exception as e:
+        print(f"[VEO 3.1] ERROR: {str(e)}")
+        print(f"[VEO 3.1] Full traceback:\n{traceback.format_exc()}")
+        print(f"[VEO 3.1] ========================================\n")
+        return None
+
+
 def regenerate_with_feedback(original_description: str, feedback: str, graphic_type: str) -> str:
     """Regenerate image with user feedback"""
-    
+
     enhanced_description = f"{original_description}\n\nAdjustments requested: {feedback}"
-    
+
     return generate_graphic(enhanced_description, graphic_type)

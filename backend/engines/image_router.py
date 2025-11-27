@@ -346,21 +346,30 @@ Style requirements:
         return None
 
 def generate_nano_banana_image(description: str, research_data: list = None) -> str:
-    """Generate image using Google's Nano Banana Pro - best for infographics and text-heavy images.
+    """Generate image using Google's Imagen 3 - best for infographics and text-heavy images.
 
-    Nano Banana Pro is optimized for generating images with text, data visualizations,
+    Imagen 3 is optimized for generating images with text, data visualizations,
     and infographic-style content where DALL-E often struggles with text rendering.
+
+    Uses the google-genai SDK with the correct image generation pattern.
     """
-    print(f"\n[NANO BANANA PRO] ========================================")
-    print(f"[NANO BANANA PRO] Generating infographic for: {description[:100]}...")
-    print(f"[NANO BANANA PRO] Research data provided: {bool(research_data)}")
+    from google import genai
+    from google.genai import types
+
+    print(f"\n[IMAGEN 3] ========================================")
+    print(f"[IMAGEN 3] Generating infographic for: {description[:100]}...")
+    print(f"[IMAGEN 3] Research data provided: {bool(research_data)}")
 
     try:
         # Check if Google AI is configured
-        if not os.getenv("GOOGLE_API_KEY"):
-            print(f"[NANO BANANA PRO] ERROR: GOOGLE_API_KEY not set, falling back to DALL-E")
-            print(f"[NANO BANANA PRO] ========================================\n")
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print(f"[IMAGEN 3] ERROR: GOOGLE_API_KEY not set, falling back to DALL-E")
+            print(f"[IMAGEN 3] ========================================\n")
             return generate_dalle_image(description)
+
+        # Initialize the google-genai client
+        client = genai.Client(api_key=api_key)
 
         # Build enhanced prompt for infographic
         research_context = ""
@@ -382,47 +391,40 @@ Style requirements:
 - Data should be prominently displayed with clear visual hierarchy
 - Minimal but effective use of icons and visual elements"""
 
-        print(f"[NANO BANANA PRO] Enhanced prompt length: {len(enhanced_prompt)} chars")
-        print(f"[NANO BANANA PRO] Calling Google Gemini 3 Pro Image API...")
+        print(f"[IMAGEN 3] Enhanced prompt length: {len(enhanced_prompt)} chars")
+        print(f"[IMAGEN 3] Calling Google Imagen 3 API...")
 
-        # Use Gemini 3 Pro Image model for infographic generation
-        model = genai.GenerativeModel('gemini-3-pro-image-preview')
-
-        response = model.generate_content(
-            enhanced_prompt,
-            generation_config={
-                "response_modalities": ["image"],
-                "image_size": "1792x1024",  # LinkedIn landscape
-            }
+        # Use Imagen 3 for image generation
+        response = client.models.generate_images(
+            model="imagen-3.0-generate-002",
+            prompt=enhanced_prompt,
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="16:9",
+                safety_filter_level="BLOCK_MEDIUM_AND_ABOVE",
+            ),
         )
 
         # Extract image from response
-        if response.candidates and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'inline_data') and part.inline_data:
-                    image_data = part.inline_data.data
-                    mime_type = part.inline_data.mime_type or "image/png"
+        if response.generated_images and len(response.generated_images) > 0:
+            image = response.generated_images[0].image
 
-                    # Convert to base64 if not already
-                    if isinstance(image_data, bytes):
-                        image_base64 = base64.b64encode(image_data).decode()
-                    else:
-                        image_base64 = image_data
+            # Get image bytes
+            if hasattr(image, 'image_bytes') and image.image_bytes:
+                image_base64 = base64.b64encode(image.image_bytes).decode()
+                print(f"[IMAGEN 3] SUCCESS - Image generated, {len(image_base64)} base64 chars")
+                print(f"[IMAGEN 3] ========================================\n")
+                return f"data:image/png;base64,{image_base64}"
 
-                    print(f"[NANO BANANA PRO] SUCCESS - Image generated, base64 length: {len(image_base64)} chars")
-                    print(f"[NANO BANANA PRO] ========================================\n")
-
-                    return f"data:{mime_type};base64,{image_base64}"
-
-        print(f"[NANO BANANA PRO] ERROR: No image in response, falling back to DALL-E")
-        print(f"[NANO BANANA PRO] ========================================\n")
+        print(f"[IMAGEN 3] ERROR: No image in response, falling back to DALL-E")
+        print(f"[IMAGEN 3] ========================================\n")
         return generate_dalle_image(description)
 
     except Exception as e:
-        print(f"[NANO BANANA PRO] ERROR: {str(e)}")
-        print(f"[NANO BANANA PRO] Full traceback:\n{traceback.format_exc()}")
-        print(f"[NANO BANANA PRO] Falling back to DALL-E...")
-        print(f"[NANO BANANA PRO] ========================================\n")
+        print(f"[IMAGEN 3] ERROR: {str(e)}")
+        print(f"[IMAGEN 3] Full traceback:\n{traceback.format_exc()}")
+        print(f"[IMAGEN 3] Falling back to DALL-E...")
+        print(f"[IMAGEN 3] ========================================\n")
         return generate_dalle_image(description)
 
 
@@ -432,64 +434,103 @@ def generate_veo_video(description: str, duration_seconds: int = 8) -> str:
     Veo 3.1 is Google's video generation model, ideal for creating
     motion graphics, animations, and video content for social media.
 
+    Uses the google-genai SDK with the correct async polling pattern.
+    Video generation typically takes 1-3 minutes.
+
     Returns a base64-encoded video with metadata prefix for frontend handling.
     """
+    import time
+    from google import genai
+    from google.genai import types
+
     print(f"\n[VEO 3.1] ========================================")
     print(f"[VEO 3.1] Generating video for: {description[:100]}...")
     print(f"[VEO 3.1] Duration: {duration_seconds} seconds")
 
     try:
         # Check if Google AI is configured
-        if not os.getenv("GOOGLE_API_KEY"):
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
             print(f"[VEO 3.1] ERROR: GOOGLE_API_KEY not set")
             print(f"[VEO 3.1] ========================================\n")
             return None
 
-        enhanced_prompt = f"""Create a professional video for LinkedIn:
+        # Initialize the google-genai client
+        client = genai.Client(api_key=api_key)
 
-{description}
-
-Style requirements:
-- Clean, modern corporate motion graphics
-- Color palette: Blues (#0077B5, #00A0DC, #005582) with white accents
-- Smooth, professional transitions
-- B2B aesthetic suitable for supply chain executives
-- Landscape orientation (16:9 ratio)
-- Suitable for professional social media
-- Duration: approximately {duration_seconds} seconds"""
+        enhanced_prompt = f"""Professional B2B video for LinkedIn.
+Topic: {description}
+Style: Clean, corporate aesthetic with blue color tones (#0077B5, #00A0DC).
+Professional lighting, smooth camera movements.
+Suitable for supply chain and logistics consulting content.
+Duration: {duration_seconds} seconds."""
 
         print(f"[VEO 3.1] Enhanced prompt length: {len(enhanced_prompt)} chars")
-        print(f"[VEO 3.1] Calling Google Veo 3.1 Fast API...")
+        print(f"[VEO 3.1] Calling Veo 3.1 Fast API (this may take 1-3 minutes)...")
 
-        # Use Veo 3.1 Fast for video generation
-        model = genai.GenerativeModel('veo-3.1-fast-generate-preview')
-
-        response = model.generate_content(
-            enhanced_prompt,
-            generation_config={
-                "response_modalities": ["video"],
-                "video_duration_seconds": duration_seconds,
-            }
+        # Create video generation operation
+        operation = client.models.generate_videos(
+            model="veo-3.1-fast-generate-preview",
+            prompt=enhanced_prompt,
+            config=types.GenerateVideosConfig(
+                number_of_videos=1,
+                duration_seconds=duration_seconds,
+                aspect_ratio="16:9",
+            ),
         )
 
-        # Extract video from response
-        if response.candidates and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'inline_data') and part.inline_data:
-                    video_data = part.inline_data.data
-                    mime_type = part.inline_data.mime_type or "video/mp4"
+        # Poll until complete (video generation takes time)
+        poll_count = 0
+        max_polls = 30  # 5 minutes max (30 * 10 seconds)
+        while not operation.done and poll_count < max_polls:
+            print(f"[VEO 3.1] Waiting for video generation... (poll {poll_count + 1}/{max_polls})")
+            time.sleep(10)
+            operation = client.operations.get(operation)
+            poll_count += 1
 
-                    # Convert to base64 if not already
-                    if isinstance(video_data, bytes):
-                        video_base64 = base64.b64encode(video_data).decode()
+        if not operation.done:
+            print(f"[VEO 3.1] ERROR: Video generation timed out after 5 minutes")
+            print(f"[VEO 3.1] ========================================\n")
+            return None
+
+        # Get the generated video
+        if operation.response and operation.response.generated_videos:
+            video = operation.response.generated_videos[0].video
+
+            # Get video bytes and convert to base64
+            if hasattr(video, 'video_bytes') and video.video_bytes:
+                video_base64 = base64.b64encode(video.video_bytes).decode()
+                print(f"[VEO 3.1] SUCCESS - Video generated, {len(video_base64)} base64 chars")
+                print(f"[VEO 3.1] ========================================\n")
+                return f"data:video/mp4;base64,{video_base64}"
+
+            # If video is at a URI, download it with authentication
+            if hasattr(video, 'uri') and video.uri:
+                print(f"[VEO 3.1] Video at URI: {video.uri}")
+                try:
+                    import requests
+
+                    # The URI requires authentication with the API key
+                    download_url = video.uri
+                    if "?" in download_url:
+                        download_url += f"&key={api_key}"
                     else:
-                        video_base64 = video_data
+                        download_url += f"?key={api_key}"
 
-                    print(f"[VEO 3.1] SUCCESS - Video generated, base64 length: {len(video_base64)} chars")
-                    print(f"[VEO 3.1] ========================================\n")
+                    print(f"[VEO 3.1] Downloading video...")
+                    response = requests.get(download_url, timeout=120)
 
-                    # Return with video mime type prefix for frontend detection
-                    return f"data:{mime_type};base64,{video_base64}"
+                    if response.status_code == 200:
+                        video_bytes = response.content
+                        video_base64 = base64.b64encode(video_bytes).decode()
+                        print(f"[VEO 3.1] SUCCESS - Video downloaded, {len(video_base64)} base64 chars")
+                        print(f"[VEO 3.1] ========================================\n")
+                        return f"data:video/mp4;base64,{video_base64}"
+                    else:
+                        print(f"[VEO 3.1] ERROR: Download failed with status {response.status_code}")
+                        print(f"[VEO 3.1] Response: {response.text[:500]}")
+                except Exception as download_error:
+                    print(f"[VEO 3.1] ERROR: Failed to download video from URI: {download_error}")
 
         print(f"[VEO 3.1] ERROR: No video in response")
         print(f"[VEO 3.1] ========================================\n")
